@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import {
@@ -15,8 +15,21 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
-const port = Number(process.env.PORT || 4000);
+const port = Number(process.env.PORT || 3003);
 const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:3000";
+
+const parseEnvFlag = (value: string | undefined, defaultValue: boolean) => {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return defaultValue;
+  }
+  return !["0", "false", "no", "off"].includes(normalized);
+};
+
+const bookkeepingEnabled = parseEnvFlag(process.env.BOOKKEEPING_ENABLED, true);
 
 app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: "2mb" }));
@@ -27,9 +40,13 @@ app.get("/health", (_req, res) => {
 
 app.get("/api/chat-logs", async (req, res) => {
   try {
-    const sessionKeyRaw = typeof req.query.sessionKey === "string" ? req.query.sessionKey : "main";
-    const limitParsed = typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
-    const limit = Number.isFinite(limitParsed) ? Math.max(1, Math.min(1000, limitParsed)) : 200;
+    const sessionKeyRaw =
+      typeof req.query.sessionKey === "string" ? req.query.sessionKey : "main";
+    const limitParsed =
+      typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
+    const limit = Number.isFinite(limitParsed)
+      ? Math.max(1, Math.min(1000, limitParsed))
+      : 200;
     const items = await fetchChatLogs(sessionKeyRaw, limit);
     res.json({ items });
   } catch (err) {
@@ -41,8 +58,11 @@ app.get("/api/chat-logs", async (req, res) => {
 
 app.get("/api/usage", async (req, res) => {
   try {
-    const daysParsed = typeof req.query.days === "string" ? Number(req.query.days) : NaN;
-    const days = Number.isFinite(daysParsed) ? Math.max(1, Math.min(90, daysParsed)) : 7;
+    const daysParsed =
+      typeof req.query.days === "string" ? Number(req.query.days) : NaN;
+    const days = Number.isFinite(daysParsed)
+      ? Math.max(1, Math.min(90, daysParsed))
+      : 7;
     const items = await fetchUsageItems(days);
     res.json({ items });
   } catch (err) {
@@ -73,10 +93,13 @@ app.post("/api/skills/:id/toggle", async (req, res) => {
     const item = await updateSkill(id, enabled);
     return res.json({ item });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to update skill.";
+    const message =
+      err instanceof Error ? err.message : "Failed to update skill.";
     if (message.toLowerCase().includes("blocked skill")) {
       // eslint-disable-next-line no-console
-      console.warn(`[security] skill vetting blocked "${req.params.id}": ${message}`);
+      console.warn(
+        `[security] skill vetting blocked "${req.params.id}": ${message}`,
+      );
     } else {
       // eslint-disable-next-line no-console
       console.warn(`[skills] toggle failed for "${req.params.id}": ${message}`);
@@ -87,10 +110,13 @@ app.post("/api/skills/:id/toggle", async (req, res) => {
 
 app.post("/api/bookkeeping/append", async (req, res) => {
   try {
-    const { date, vendor, amount, category, notes, source } = req.body as Record<
-      string,
-      unknown
-    >;
+    if (!bookkeepingEnabled) {
+      return res.status(403).json({
+        error: "Bookkeeping is disabled by server configuration.",
+      });
+    }
+    const { date, vendor, amount, category, notes, source } =
+      req.body as Record<string, unknown>;
     if (!date || !vendor || !amount || !category) {
       return res.status(400).json({
         error: "date, vendor, amount, and category are required.",
@@ -131,7 +157,10 @@ app.post("/api/ghl/contacts/search", async (req, res) => {
 
 app.post("/api/ghl/contacts/update", async (req, res) => {
   try {
-    const { contactId, query, email, phone, updates } = req.body as Record<string, unknown>;
+    const { contactId, query, email, phone, updates } = req.body as Record<
+      string,
+      unknown
+    >;
     if (!updates || typeof updates !== "object") {
       return res.status(400).json({ error: "updates must be an object." });
     }
@@ -152,7 +181,8 @@ app.post("/api/ghl/contacts/update", async (req, res) => {
 
       if (matches.length > 1) {
         return res.status(409).json({
-          error: "Multiple contacts matched. Provide contactId or refine search.",
+          error:
+            "Multiple contacts matched. Provide contactId or refine search.",
           items: matches,
         });
       }
@@ -164,7 +194,10 @@ app.post("/api/ghl/contacts/update", async (req, res) => {
       return res.status(400).json({ error: "contactId is required." });
     }
 
-    const item = await updateContact(resolvedId, updates as Record<string, unknown>);
+    const item = await updateContact(
+      resolvedId,
+      updates as Record<string, unknown>,
+    );
     return res.json({ item });
   } catch (err) {
     return res.status(500).json({
