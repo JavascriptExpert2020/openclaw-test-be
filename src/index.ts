@@ -15,7 +15,7 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
-const port = Number(process.env.PORT || 3003);
+const port = Number(process.env.PORT || 3000);
 const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:3000";
 
 const parseEnvFlag = (value: string | undefined, defaultValue: boolean) => {
