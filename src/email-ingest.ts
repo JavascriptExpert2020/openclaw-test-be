@@ -45,8 +45,18 @@ const extractEmail = (value?: AddressObject | string | null): string => {
   return first?.address?.trim().toLowerCase() || "";
 };
 
-const collectEmails = (...values: Array<AddressObject | string | null | undefined>): string[] => {
+const collectEmails = (
+  ...values: Array<AddressObject | AddressObject[] | string | null | undefined>
+): string[] => {
   const emails: string[] = [];
+  const addFromAddressObject = (value?: AddressObject | null) => {
+    for (const entry of value?.value ?? []) {
+      if (entry?.address) {
+        emails.push(entry.address.trim().toLowerCase());
+      }
+    }
+  };
+
   for (const value of values) {
     if (!value) {
       continue;
@@ -61,11 +71,13 @@ const collectEmails = (...values: Array<AddressObject | string | null | undefine
       }
       continue;
     }
-    for (const entry of value.value ?? []) {
-      if (entry?.address) {
-        emails.push(entry.address.trim().toLowerCase());
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        addFromAddressObject(item ?? null);
       }
+      continue;
     }
+    addFromAddressObject(value);
   }
   return emails;
 };
@@ -220,6 +232,13 @@ const sendReplyEmail = async (params: {
   });
 };
 
+const getMessageSource = (value: unknown): Buffer | string | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return (value as { source?: Buffer | string }).source;
+};
+
 export const startEmailIngest = (): EmailIngestHandle => {
   const imapHost = process.env.EMAIL_IMAP_HOST?.trim() || "";
   const imapPort = Number(process.env.EMAIL_IMAP_PORT || 993);
@@ -298,10 +317,11 @@ export const startEmailIngest = (): EmailIngestHandle => {
       }
       for (const uid of recent) {
         const messageResult = await client.fetchOne(uid, { source: true, envelope: true });
-        if (!messageResult || messageResult === false || !messageResult.source) {
+        const messageSource = getMessageSource(messageResult);
+        if (!messageSource) {
           continue;
         }
-        const parsed = await simpleParser(messageResult.source);
+        const parsed = await simpleParser(messageSource);
         const forwarded = await tryParseForwarded(parsed);
         const prompt = buildAgentPrompt(parsed, forwarded);
         const fromEmail = extractEmail(parsed.from);
