@@ -288,7 +288,8 @@ export const startEmailIngest = (): EmailIngestHandle => {
       await client.mailboxOpen(mailbox);
 
       const sinceDate = new Date(Date.now() - Math.max(1, sinceHours) * 60 * 60 * 1000);
-      const unseen = await client.search({ seen: false, since: sinceDate });
+      const unseenResult = await client.search({ seen: false, since: sinceDate });
+      const unseen = Array.isArray(unseenResult) ? unseenResult : [];
       const recent = unseen.slice(Math.max(0, unseen.length - Math.max(1, maxMessages)));
       log(`[email] unseen=${unseen.length} recent=${recent.length}`);
       if (!sendReplies) {
@@ -296,11 +297,11 @@ export const startEmailIngest = (): EmailIngestHandle => {
         return;
       }
       for (const uid of recent) {
-        const message = await client.fetchOne(uid, { source: true, envelope: true });
-        if (!message?.source) {
+        const messageResult = await client.fetchOne(uid, { source: true, envelope: true });
+        if (!messageResult || messageResult === false || !messageResult.source) {
           continue;
         }
-        const parsed = await simpleParser(message.source);
+        const parsed = await simpleParser(messageResult.source);
         const forwarded = await tryParseForwarded(parsed);
         const prompt = buildAgentPrompt(parsed, forwarded);
         const fromEmail = extractEmail(parsed.from);
@@ -382,3 +383,4 @@ export const startEmailIngest = (): EmailIngestHandle => {
     },
   };
 };
+
