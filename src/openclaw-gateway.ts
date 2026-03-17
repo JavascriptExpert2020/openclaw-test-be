@@ -163,6 +163,67 @@ const toOptionalNumber = (value: unknown): number | null => {
   return null;
 };
 
+const INBOUND_META_HINT_RE = /untrusted metadata|```json/i;
+
+const looksLikeInboundMetaTitle = (value: string): boolean =>
+  INBOUND_META_HINT_RE.test(value);
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const parseInboundMetaBlock = (text: string, sentinel: string): Record<string, unknown> | null => {
+  const block = new RegExp(
+    `${escapeRegExp(sentinel)}\\s*\\n\`\`\`json\\n([\\s\\S]*?)\\n\`\`\``,
+  );
+  const match = text.match(block);
+  if (!match) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(match[1] ?? "");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+};
+
+const firstNonEmptyString = (...values: unknown[]): string | undefined => {
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const trimmed = value.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+};
+
+const extractInboundSenderLabel = (text: string): string | undefined => {
+  if (!looksLikeInboundMetaTitle(text)) {
+    return undefined;
+  }
+  const senderInfo = parseInboundMetaBlock(text, "Sender (untrusted metadata):");
+  const conversationInfo = parseInboundMetaBlock(
+    text,
+    "Conversation info (untrusted metadata):",
+  );
+  return firstNonEmptyString(
+    senderInfo?.label,
+    senderInfo?.name,
+    senderInfo?.username,
+    senderInfo?.e164,
+    senderInfo?.id,
+    conversationInfo?.sender,
+  );
+};
+
+const simplifySessionKey = (key: string): string => {
+  const parts = key.split(":").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : key;
+};
+
 const toIsoTimestamp = (value: unknown): string => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return new Date(value).toISOString();
@@ -395,7 +456,24 @@ export const fetchSessions = async (limit = 200): Promise<SessionSummary[]> => {
     const displayName = toOptionalString(session.displayName);
     const derivedTitle = toOptionalString(session.derivedTitle);
     const label = toOptionalString(session.label);
-    const title = displayName || derivedTitle || label || key;
+    const titleCandidates: string[] = [];
+    if (displayName) {
+      titleCandidates.push(displayName);
+    }
+    if (derivedTitle) {
+      titleCandidates.push(derivedTitle);
+    }
+    if (label) {
+      titleCandidates.push(label);
+    }
+    let title = titleCandidates.find((value) => !looksLikeInboundMetaTitle(value));
+    if (!title) {
+      const metaSource = titleCandidates.find((value) => looksLikeInboundMetaTitle(value));
+      title = metaSource ? extractInboundSenderLabel(metaSource) : undefined;
+    }
+    if (!title) {
+      title = simplifySessionKey(key);
+    }
     items.push({
       key,
       title,
