@@ -386,27 +386,27 @@ export const fetchSessions = async (limit = 200): Promise<SessionSummary[]> => {
     limit,
   });
   const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
-  return sessions
-    .map((session) => {
-      const key = toOptionalString(session.key);
-      if (!key) {
-        return null;
-      }
-      const displayName = toOptionalString(session.displayName);
-      const derivedTitle = toOptionalString(session.derivedTitle);
-      const label = toOptionalString(session.label);
-      const title = displayName || derivedTitle || label || key;
-      return {
-        key,
-        title,
-        model: toOptionalString(session.model),
-        modelProvider: toOptionalString(session.modelProvider),
-        updatedAt: toOptionalNumber(session.updatedAt),
-        channel: toOptionalString(session.channel),
-        kind: toOptionalString(session.kind),
-      } satisfies SessionSummary;
-    })
-    .filter((session): session is SessionSummary => session !== null);
+  const items: SessionSummary[] = [];
+  for (const session of sessions) {
+    const key = toOptionalString(session.key);
+    if (!key) {
+      continue;
+    }
+    const displayName = toOptionalString(session.displayName);
+    const derivedTitle = toOptionalString(session.derivedTitle);
+    const label = toOptionalString(session.label);
+    const title = displayName || derivedTitle || label || key;
+    items.push({
+      key,
+      title,
+      model: toOptionalString(session.model),
+      modelProvider: toOptionalString(session.modelProvider),
+      updatedAt: toOptionalNumber(session.updatedAt),
+      channel: toOptionalString(session.channel),
+      kind: toOptionalString(session.kind),
+    });
+  }
+  return items;
 };
 
 export const fetchUsageItems = async (days = 7): Promise<UsageItem[]> => {

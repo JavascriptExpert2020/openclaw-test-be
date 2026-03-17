@@ -34,6 +34,19 @@ const extractTextFromMessage = (message) => {
     }
     return "[non-text message]";
 };
+const toOptionalString = (value) => {
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed ? trimmed : undefined;
+    }
+    return undefined;
+};
+const toOptionalNumber = (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    return null;
+};
 const toIsoTimestamp = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
         return new Date(value).toISOString();
@@ -206,6 +219,10 @@ export const fetchChatLogs = async (sessionKey, limit = 200) => {
         const entry = raw && typeof raw === "object" ? raw : {};
         const role = typeof entry.role === "string" ? entry.role : "unknown";
         const ts = toIsoTimestamp(entry.timestamp ?? entry.ts);
+        const model = toOptionalString(entry.model);
+        const provider = toOptionalString(entry.provider) ??
+            toOptionalString(entry.modelProvider) ??
+            toOptionalString(entry.api);
         const id = (typeof entry.id === "string" && entry.id.trim()) ||
             (typeof entry.messageId === "string" && entry.messageId.trim()) ||
             `${sessionKey}-${index}-${ts}`;
@@ -214,8 +231,38 @@ export const fetchChatLogs = async (sessionKey, limit = 200) => {
             channel: typeof entry.channel === "string" ? entry.channel : role,
             text: extractTextFromMessage(entry),
             ts,
+            model,
+            provider,
         };
     });
+};
+export const fetchSessions = async (limit = 200) => {
+    const response = await gatewayRequest("sessions.list", {
+        includeDerivedTitles: true,
+        limit,
+    });
+    const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+    const items = [];
+    for (const session of sessions) {
+        const key = toOptionalString(session.key);
+        if (!key) {
+            continue;
+        }
+        const displayName = toOptionalString(session.displayName);
+        const derivedTitle = toOptionalString(session.derivedTitle);
+        const label = toOptionalString(session.label);
+        const title = displayName || derivedTitle || label || key;
+        items.push({
+            key,
+            title,
+            model: toOptionalString(session.model),
+            modelProvider: toOptionalString(session.modelProvider),
+            updatedAt: toOptionalNumber(session.updatedAt),
+            channel: toOptionalString(session.channel),
+            kind: toOptionalString(session.kind),
+        });
+    }
+    return items;
 };
 export const fetchUsageItems = async (days = 7) => {
     const summary = await gatewayRequest("usage.cost", { days });
@@ -260,4 +307,24 @@ export const updateSkill = async (skillKey, enabled) => {
         return { id: skillKey, name: skillKey, enabled };
     }
     return updated;
+};
+export const sendChatMessage = async (sessionKey, message, opts) => {
+    const runId = randomUUID();
+    await gatewayRequest("chat.send", {
+        sessionKey,
+        message,
+        idempotencyKey: runId,
+        timeoutMs: opts?.timeoutMs,
+    }, { timeoutMs: opts?.timeoutMs });
+    return runId;
+};
+export const waitForRun = async (runId, timeoutMs = 60_000) => {
+    return await gatewayRequest("agent.wait", { runId, timeoutMs }, { timeoutMs: timeoutMs + 5_000 });
+};
+export const fetchLatestAssistantMessage = async (sessionKey, limit = 50) => {
+    const logs = await fetchChatLogs(sessionKey, limit);
+    const latest = [...logs]
+        .reverse()
+        .find((entry) => entry.channel === "assistant" || entry.channel === "model");
+    return latest?.text ?? "";
 };
