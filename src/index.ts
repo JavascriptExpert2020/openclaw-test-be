@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import {
   fetchChatLogs,
+  fetchSessions,
   fetchSkills,
   fetchUsageItems,
   updateSkill,
@@ -52,6 +53,22 @@ app.get("/api/chat-logs", async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "Failed to load chat logs.",
+    });
+  }
+});
+
+app.get("/api/sessions", async (req, res) => {
+  try {
+    const limitParsed =
+      typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
+    const limit = Number.isFinite(limitParsed)
+      ? Math.max(1, Math.min(1000, limitParsed))
+      : 200;
+    const items = await fetchSessions(limit);
+    res.json({ items });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to load sessions.",
     });
   }
 });

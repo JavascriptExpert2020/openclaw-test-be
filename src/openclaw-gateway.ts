@@ -31,6 +31,8 @@ export type ChatLog = {
   channel: string;
   text: string;
   ts: string;
+  model?: string;
+  provider?: string;
 };
 
 export type UsageItem = {
@@ -88,6 +90,31 @@ type ChatHistoryResponse = {
   messages?: unknown[];
 };
 
+type SessionsListResponse = {
+  sessions?: Array<{
+    key?: unknown;
+    displayName?: unknown;
+    derivedTitle?: unknown;
+    label?: unknown;
+    modelProvider?: unknown;
+    model?: unknown;
+    updatedAt?: unknown;
+    channel?: unknown;
+    kind?: unknown;
+  }>;
+};
+
+export type SessionSummary = {
+  key: string;
+  title: string;
+  model?: string;
+  modelProvider?: string;
+  updatedAt?: number | null;
+  channel?: string;
+  kind?: string;
+};
+
+
 const toText = (value: unknown): string => {
   if (typeof value === "string") {
     return value;
@@ -119,6 +146,21 @@ const extractTextFromMessage = (message: Record<string, unknown>): string => {
     }
   }
   return "[non-text message]";
+};
+
+const toOptionalString = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  return undefined;
+};
+
+const toOptionalNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return null;
 };
 
 const toIsoTimestamp = (value: unknown): string => {
@@ -318,6 +360,11 @@ export const fetchChatLogs = async (sessionKey: string, limit = 200): Promise<Ch
     const entry = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
     const role = typeof entry.role === "string" ? entry.role : "unknown";
     const ts = toIsoTimestamp(entry.timestamp ?? entry.ts);
+    const model = toOptionalString(entry.model);
+    const provider =
+      toOptionalString(entry.provider) ??
+      toOptionalString(entry.modelProvider) ??
+      toOptionalString(entry.api);
     const id =
       (typeof entry.id === "string" && entry.id.trim()) ||
       (typeof entry.messageId === "string" && entry.messageId.trim()) ||
@@ -327,8 +374,39 @@ export const fetchChatLogs = async (sessionKey: string, limit = 200): Promise<Ch
       channel: typeof entry.channel === "string" ? entry.channel : role,
       text: extractTextFromMessage(entry),
       ts,
+      model,
+      provider,
     };
   });
+};
+
+export const fetchSessions = async (limit = 200): Promise<SessionSummary[]> => {
+  const response = await gatewayRequest<SessionsListResponse>("sessions.list", {
+    includeDerivedTitles: true,
+    limit,
+  });
+  const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+  return sessions
+    .map((session) => {
+      const key = toOptionalString(session.key);
+      if (!key) {
+        return null;
+      }
+      const displayName = toOptionalString(session.displayName);
+      const derivedTitle = toOptionalString(session.derivedTitle);
+      const label = toOptionalString(session.label);
+      const title = displayName || derivedTitle || label || key;
+      return {
+        key,
+        title,
+        model: toOptionalString(session.model),
+        modelProvider: toOptionalString(session.modelProvider),
+        updatedAt: toOptionalNumber(session.updatedAt),
+        channel: toOptionalString(session.channel),
+        kind: toOptionalString(session.kind),
+      } satisfies SessionSummary;
+    })
+    .filter((session): session is SessionSummary => session !== null);
 };
 
 export const fetchUsageItems = async (days = 7): Promise<UsageItem[]> => {
