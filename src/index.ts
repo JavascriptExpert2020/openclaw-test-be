@@ -30,7 +30,42 @@ const parseEnvFlag = (value: string | undefined, defaultValue: boolean) => {
   return !["0", "false", "no", "off"].includes(normalized);
 };
 
+const parseEnvInt = (value: string | undefined, defaultValue: number) => {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
+};
+
+const BOOKKEEPING_SKILL_ID = "bookkeeping";
+const BOOKKEEPING_STATUS_TTL_MS = Math.max(
+  0,
+  parseEnvInt(process.env.BOOKKEEPING_STATUS_TTL_MS, 0),
+);
+
 let bookkeepingEnabled = parseEnvFlag(process.env.BOOKKEEPING_ENABLED, true);
+let bookkeepingLastChecked = 0;
+
+const resolveBookkeepingEnabled = async (): Promise<boolean> => {
+  const now = Date.now();
+  if (
+    BOOKKEEPING_STATUS_TTL_MS > 0 &&
+    now - bookkeepingLastChecked < BOOKKEEPING_STATUS_TTL_MS
+  ) {
+    return bookkeepingEnabled;
+  }
+  try {
+    const items = await fetchSkills();
+    const item = items.find((skill) => skill.id === BOOKKEEPING_SKILL_ID);
+    bookkeepingEnabled = item ? item.enabled : false;
+    bookkeepingLastChecked = now;
+    return bookkeepingEnabled;
+  } catch (err) {
+    // Fail closed to avoid logging when the gateway cannot be queried.
+    return false;
+  }
+};
 
 app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: "2mb" }));
@@ -108,8 +143,9 @@ app.post("/api/skills/:id/toggle", async (req, res) => {
       return res.status(400).json({ error: "enabled must be a boolean." });
     }
     const item = await updateSkill(id, enabled);
-    if (item.id === "bookkeeping") {
+    if (item.id === BOOKKEEPING_SKILL_ID) {
       bookkeepingEnabled = item.enabled;
+      bookkeepingLastChecked = Date.now();
     }
     return res.json({ item });
   } catch (err) {
@@ -130,7 +166,8 @@ app.post("/api/skills/:id/toggle", async (req, res) => {
 
 app.post("/api/bookkeeping/append", async (req, res) => {
   try {
-    if (!bookkeepingEnabled) {
+    const enabled = await resolveBookkeepingEnabled();
+    if (!enabled) {
       return res.status(403).json({
         error: "Bookkeeping skill is disabled in the admin portal. Re-enable it to continue.",
       });
