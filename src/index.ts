@@ -30,7 +30,7 @@ const parseEnvFlag = (value: string | undefined, defaultValue: boolean) => {
   return !["0", "false", "no", "off"].includes(normalized);
 };
 
-const bookkeepingEnabled = parseEnvFlag(process.env.BOOKKEEPING_ENABLED, true);
+let bookkeepingEnabled = parseEnvFlag(process.env.BOOKKEEPING_ENABLED, true);
 
 app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: "2mb" }));
@@ -108,6 +108,9 @@ app.post("/api/skills/:id/toggle", async (req, res) => {
       return res.status(400).json({ error: "enabled must be a boolean." });
     }
     const item = await updateSkill(id, enabled);
+    if (item.id === "bookkeeping") {
+      bookkeepingEnabled = item.enabled;
+    }
     return res.json({ item });
   } catch (err) {
     const message =
@@ -129,7 +132,7 @@ app.post("/api/bookkeeping/append", async (req, res) => {
   try {
     if (!bookkeepingEnabled) {
       return res.status(403).json({
-        error: "Bookkeeping is disabled by server configuration.",
+        error: "Bookkeeping skill is disabled in the admin portal. Re-enable it to continue.",
       });
     }
     const { date, vendor, amount, category, notes, source } =
@@ -235,3 +238,5 @@ process.on("SIGINT", () => {
   server.close();
   process.exit(0);
 });
+
+
